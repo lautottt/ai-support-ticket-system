@@ -1,0 +1,333 @@
+{
+  "name": "Approval Handlers",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "tickets",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "approval_token",
+              "condition": "eq",
+              "keyValue": "={{ $json.query.token }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Get Ticket",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tickets",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "approval_token",
+              "condition": "eq",
+              "keyValue": "={{ $('Webhook - Approve').first().json.query.token }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "approved"
+            },
+            {
+              "fieldId": "approved_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Update - Approved",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "approve",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "19405d94-5b79-48e7-8452-00467869261c",
+      "name": "Webhook - Approve",
+      "webhookId": "42900a20-c10d-4b8b-bd6c-cf2b049efecb"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "✅ Ticket approved. The response will be sent to the customer.\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        624,
+        0
+      ],
+      "id": "695f49ce-97ae-4c87-a71d-441a926a4369",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Get Ticket').first().json.customer_email }}",
+        "subject": "Your support request — we're on it",
+        "emailType": "text",
+        "message": "={{ $('Get Ticket').first().json.final_response }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        784,
+        0
+      ],
+      "id": "f9e6330b-4084-4e77-b29e-61dadea5431b",
+      "name": "Send Email - Customer",
+      "webhookId": "e46d1231-fb52-40ce-8419-39d7842dbe3d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "jUJfBZjXdbKGvSYY",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tickets",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "approval_token",
+              "condition": "eq",
+              "keyValue": "={{ $('Webhook - Approve').first().json.query.token }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "sent"
+            },
+            {
+              "fieldId": "sent_at",
+              "fieldValue": "={{ new Date().toISOString() }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        976,
+        0
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Update - Sent",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "needs-edit",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        208
+      ],
+      "id": "bd4224b7-80a9-444e-ae7e-65a6649c2c30",
+      "name": "Webhook - Needs Edit",
+      "webhookId": "b6e9b5d1-b1cc-4c77-a5bb-7473b9586e87"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "tickets",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "approval_token",
+              "condition": "eq",
+              "keyValue": "={{ $('Webhook - Needs Edit').first().json.query.token }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "status",
+              "fieldValue": "needs_edit"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        208
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Update - Needs Edit",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "⚠️ Ticket marked for editing. Update the response directly in Supabase.\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        416,
+        208
+      ],
+      "id": "f1143c83-ae7b-4011-937a-147f21308b14",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get Ticket": {
+      "main": [
+        [
+          {
+            "node": "Update - Approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Approve": {
+      "main": [
+        [
+          {
+            "node": "Get Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update - Approved": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Send Email - Customer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email - Customer": {
+      "main": [
+        [
+          {
+            "node": "Update - Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Needs Edit": {
+      "main": [
+        [
+          {
+            "node": "Update - Needs Edit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update - Needs Edit": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "7df568d6-b3e5-4981-9b92-e0b477a6bebb",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bbdc65648e0e55b506b82530115818e09bcc65d4f6a3892102dd1d945d1bd6e2"
+  },
+  "id": "jSvGP3BZ4iMRUuRf",
+  "tags": []
+}

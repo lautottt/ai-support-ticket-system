@@ -1,0 +1,541 @@
+{
+  "name": "Customer-Support",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.text || '';\nconst subject = $input.first().json.subject || '';\nconst fromObj = $input.first().json.from;\nconst from = fromObj && fromObj.value && fromObj.value[0] \n  ? fromObj.value[0].address \n  : '';\n\nconst subjectLower = subject.toLowerCase();\nconst fromLower = from.toLowerCase();\n\nconst autoReplyPhrases = [\n  'out of office',\n  'delivery failed',\n  'undeliverable',\n  'mailer-daemon',\n  'automatic reply',\n  'auto-reply',\n  'auto reply'\n];\n\nconst isAutoReply = autoReplyPhrases.some(phrase => subjectLower.includes(phrase));\nconst isNoReplyAddress = fromLower.includes('noreply') || \n                         fromLower.includes('no-reply') || \n                         fromLower.includes('mailer-daemon');\nconst isTooShort = body.trim().length < 10;\n\nif (isTooShort || isAutoReply || isNoReplyAddress) {\n  return [];\n}\n\nconst cleanBody = body.length > 3000 ? body.substring(0, 3000) : body;\n\nreturn [{\n  json: {\n    email_body: cleanBody,\n    email_from: from,\n    email_subject: subject,\n    was_truncated: body.length > 3000\n  }\n}];\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -240
+      ],
+      "id": "a489326e-34ab-4bbe-97b7-1d86607d0207",
+      "name": "Guard",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.email_from }}\n{{ $json.email_body }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": " You are a support ticket processing engine.  Your task is to analyze a raw support ticket and return two things in a single JSON object: 1. Structured client data extracted from the ticket 2. A list of individual issues mentioned by the customer  ---  ## Part 1: Client Data Extraction  Extract the following fields using only data explicitly present in the ticket text.  Fields: - client_id: identifiers associated with the customer or user account - order_number: numbers or codes associated with a purchase, order, or transaction - customer_name: only if the full name is clearly stated (e.g., \"My name is X\" or a signature) - customer_email: only if it matches a valid email format (contains @ and a domain)  Rules: - Use only data explicitly present in the text - If a field cannot be found unambiguously, return null - Do not invent values - Do not infer or guess partial values  ---  ## Part 2: Issue Extraction  Identify every distinct problem, complaint, or failure mentioned in the ticket. Separate each issue into its own independent object.  For each issue, extract: - issue: brief, clear, and objective description of the problem - user_intent: what the user needs or expects to resolve regarding that specific problem - key_entities: relevant keywords extracted from the text (e.g., \"account\", \"payment\", \"app\", \"login\")  Rules: 1. Each issue must be independent — do not combine different problems into one object 2. Do not invent information or add external context 3. Keep descriptions short and normalized 4. Translate ambiguous writing into a clear, direct form 5. user_intent must reflect the implicit need (e.g., regain access, request refund, fix crash) 6. key_entities must be an array — return empty array if no clear entities exist 7. If only one issue is present, return an array with one object  ---  ## Output Format  Return ONLY a valid JSON object with this exact structure. No extra text, no markdown.  {   \"client_data\": {     \"client_id\": null,     \"order_number\": null,     \"customer_name\": null,     \"customer_email\": null   },   \"issues\": [     {       \"issue\": \"string\",       \"user_intent\": \"string\",       \"key_entities\": [\"string\"]     }   ] }  Replace null values in client_data only when the value is explicitly present in the ticket. The issues array must contain at least one object."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        528,
+        -352
+      ],
+      "id": "38f8428d-19a6-48ab-ad75-b356bc157043",
+      "name": "LLM call 1 (extraction)"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        464,
+        -80
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// El LLM devuelve un string — puede venir con ```json ``` o limpio\nlet rawText = $json.text || $json.output || '';\n\n// Limpiar markdown si el modelo lo agregó igual\nrawText = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\n// Parsear\nlet parsed;\ntry {\n  parsed = JSON.parse(rawText);\n} catch (e) {\n  throw new Error('LLM Call 1 devolvió JSON inválido: ' + rawText.substring(0, 200));\n}\n\n// Validar estructura mínima\nif (!parsed.issues || !Array.isArray(parsed.issues) || parsed.issues.length === 0) {\n  throw new Error('No se detectaron issues en el ticket');\n}\n\n// Devolver un item por issue, con client_data adjunto en cada uno\nreturn parsed.issues.map(issue => ({\n  json: {\n    client_data: parsed.client_data,\n    issue: issue.issue,\n    user_intent: issue.user_intent,\n    key_entities: issue.key_entities\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        -240
+      ],
+      "id": "d69d0283-7bfc-476a-9a5a-fafd31b34996",
+      "name": "Parse + Split Issues"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        992,
+        -240
+      ],
+      "id": "e693e8db-aee8-4ce9-aedb-30c47905e599",
+      "name": "Loop - Process Issues"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify({ issue: $json.issue, user_intent: $json.user_intent, key_entities: $json.key_entities }) }}\n",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a support issue processing engine.  You will receive one support issue object and must process it through four sequential steps. Each step builds on the previous one. Complete them in order.  ---  ## Input  {   \"issue\": string,   \"user_intent\": string,   \"key_entities\": [string] }  ---  ## Step 1 — Classification  Classify the issue into a category and assign a priority level.  Category rules: - \"billing\": payments, charges, refunds, subscriptions, invoices, billing errors, duplicate charges - \"technical\": bugs, crashes, app errors, performance issues, unexpected behavior - \"account\": login issues, access problems, password reset, account lock, verification, profile issues - \"general\": informational requests or issues that do not fit the above categories  Priority rules: - \"high\": user cannot access the product / payment issues or incorrect charges / critical functionality is broken - \"medium\": functionality is affected but a workaround may exist / non-critical technical issues - \"low\": minor issues or general questions with limited impact  Fields to produce: - category: \"billing\" | \"technical\" | \"account\" | \"general\" - priority: \"high\" | \"medium\" | \"low\" - reason: short, clear, objective explanation of the priority assigned (maximum 15 words)  ---  ## Step 2 — Summary  Generate a concise professional summary of the issue and its impact on the user.  Rules: - Maximum 2 sentences - Describe only the provided issue and its impact on the user - Use clear, concise, and professional language - Do not use evaluative words such as critical, severe, significant, or urgent - Do not mention priority, urgency, or recommended actions - Do not invent information  Field to produce: - summary: string  ---  ## Step 3 — Action  Propose the most appropriate next operational action based on the category, priority, and summary from Steps 1 and 2.  Rules: - recommended_action must describe the next operational step, not assume final resolution - fallback_action must be the second-best action if the primary one fails — must differ from recommended_action - Both actions must be concrete, executable, and specific - Do not invent information beyond what was provided - Do not assume refunds, approvals, or account changes are immediately executable unless explicitly confirmed - Prefer actions such as: review, verify, initiate process if confirmed  action_type rules: - \"automatic\": can be resolved without direct human intervention - \"manual\": requires support team intervention - \"escalation\": requires a specialized team  target_team rules: - \"support\": general or account-related issues - \"finance\": billing issues - \"engineering\": technical issues  urgency rules: - \"immediate\": high priority or critical user impact - \"normal\": medium priority - \"low\": low priority  Fields to produce: - recommended_action: string - fallback_action: string - action_type: \"automatic\" | \"manual\" | \"escalation\" - target_team: \"support\" | \"finance\" | \"engineering\" - urgency: \"immediate\" | \"normal\" | \"low\"  ---  ## Step 4 — Customer Response  Write the final message to be sent to the customer.  Use ONLY the summary from Step 2 and the recommended_action from Step 3 as your source.  Strict rules: - Do not add information, context, causes, timelines, or outcomes not present in summary or recommended_action - Do not invent solutions, promises, or processes - Do not intensify the action (e.g., do not write \"immediately\" if not stated in recommended_action) - Do not soften or reinterpret the action - The communicated action must EXACTLY reflect the scope of recommended_action - Do not add phrases such as \"this will allow us to…\", \"to resolve the issue…\", or \"we will determine next steps…\" - Describe what will be done, not its future effects  Tone based on priority (from Step 1): - high: direct, focused, no filler - medium: professional and clear - low: more explanatory, but without adding new information  Response structure: 1. Brief context of the issue (based only on summary) 2. Clear main message 3. Action (strictly aligned with recommended_action) 4. Professional closing  Final checklist before writing: - Does the action maintain exactly the same commitment level as recommended_action? - Did I avoid words like \"immediately\", \"quickly\", \"we will resolve\" if not present in recommended_action? - Did I avoid explaining consequences or future outcomes? - Did I use only summary + recommended_action?  Fields to produce: - customer_response: string - confidence: \"high\" | \"medium\" | \"low\"   - high: clear and sufficient information available   - medium: slight ambiguity in the input   - low: limited information available  ---  ## Output Format  Return ONLY a valid JSON object with this exact structure. No extra text, no markdown.  {   \"category\": \"billing\" | \"technical\" | \"account\" | \"general\",   \"priority\": \"high\" | \"medium\" | \"low\",   \"reason\": \"string\",   \"summary\": \"string\",   \"recommended_action\": \"string\",   \"fallback_action\": \"string\",   \"action_type\": \"automatic\" | \"manual\" | \"escalation\",   \"target_team\": \"support\" | \"finance\" | \"engineering\",   \"urgency\": \"immediate\" | \"normal\" | \"low\",   \"customer_response\": \"string\",   \"confidence\": \"high\" | \"medium\" | \"low\" }"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1200,
+        -96
+      ],
+      "id": "70c55880-3c46-436d-9fd7-ad920f36cf9e",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1152,
+        80
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Anthropic Chat Model1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let rawText = $json.text || $json.output || '';\n\n// Limpiar markdown\nrawText = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\n// Parsear\nlet parsed;\ntry {\n  parsed = JSON.parse(rawText);\n} catch (e) {\n  throw new Error('LLM Call 2 devolvió JSON inválido: ' + rawText.substring(0, 200));\n}\n\n// Validar campos requeridos\nconst validCategories = ['billing', 'technical', 'account', 'general'];\nconst validPriorities = ['high', 'medium', 'low'];\nconst validUrgencies = ['immediate', 'normal', 'low'];\nconst validActionTypes = ['automatic', 'manual', 'escalation'];\nconst validTeams = ['support', 'finance', 'engineering'];\n\nconst errors = [];\n\nif (!validCategories.includes(parsed.category)) errors.push('category inválido');\nif (!validPriorities.includes(parsed.priority)) errors.push('priority inválido');\nif (!validUrgencies.includes(parsed.urgency)) errors.push('urgency inválido');\nif (!validActionTypes.includes(parsed.action_type)) errors.push('action_type inválido');\nif (!validTeams.includes(parsed.target_team)) errors.push('target_team inválido');\nif (!parsed.summary || parsed.summary.trim() === '') errors.push('summary vacío');\nif (!parsed.recommended_action || parsed.recommended_action.trim() === '') errors.push('recommended_action vacío');\nif (!parsed.customer_response || parsed.customer_response.trim() === '') errors.push('customer_response vacío');\n\nif (errors.length > 0) {\n  throw new Error('Validación fallida: ' + errors.join(', '));\n}\n\n// Devolver issue procesado con client_data adjunto\nreturn [{\n  json: {\n    client_data: $('Loop - Process Issues').item.json.client_data,\n    issue: $('Loop - Process Issues').item.json.issue,\n    category: parsed.category,\n    priority: parsed.priority,\n    reason: parsed.reason,\n    summary: parsed.summary,\n    recommended_action: parsed.recommended_action,\n    fallback_action: parsed.fallback_action,\n    action_type: parsed.action_type,\n    target_team: parsed.target_team,\n    urgency: parsed.urgency,\n    customer_response: parsed.customer_response,\n    confidence: parsed.confidence\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        80
+      ],
+      "id": "7ec83510-b57a-46cf-b41d-3f2024fd4118",
+      "name": "Parse + validate issue"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// Array que recibe el Final Composer\nconst responsesForComposer = items.map(item => ({\n  priority: item.json.priority,\n  customer_response: item.json.customer_response\n}));\n\n// Array completo para guardar en Supabase\nconst allIssues = items.map(item => ({\n  issue: item.json.issue,\n  category: item.json.category,\n  priority: item.json.priority,\n  reason: item.json.reason,\n  summary: item.json.summary,\n  recommended_action: item.json.recommended_action,\n  fallback_action: item.json.fallback_action,\n  action_type: item.json.action_type,\n  target_team: item.json.target_team,\n  urgency: item.json.urgency,\n  customer_response: item.json.customer_response,\n  confidence: item.json.confidence\n}));\n\n// client_data es igual en todos los items, tomamos del primero\nconst clientData = items[0].json.client_data;\n\nreturn [{\n  json: {\n    client_data: clientData,\n    issues: allIssues,\n    responses_for_composer: JSON.stringify(responsesForComposer)\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        -352
+      ],
+      "id": "2f181898-7785-46d2-991d-852507b31129",
+      "name": "Aggregate Issues"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.responses_for_composer }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a Senior E-commerce Customer Communication Specialist.  Your task is to generate ONE final, clear, and professional customer response by merging multiple pre-written issue responses from the same support case.  Input: - responses: an array of objects: [ { \"priority\": \"high\" | \"medium\" | \"low\", \"customer_response\": string } ]  Return ONLY a valid JSON object:  { \"final_response\": \"<merged customer message>\" }  MANDATORY RULES: - Use ONLY the provided customer_response texts - Do NOT add new information, actions, promises, timelines, explanations, or outcomes - Do NOT strengthen or weaken any statement - Preserve the exact meaning and commitment level of each response - Merge the responses into ONE coherent message, not a raw concatenation - Do NOT omit any important issue-related content - Remove duplicated greetings, acknowledgments, apologies, or closings - Normalize voice consistently to \"we\" - Use light connectors only for flow, such as \"Additionally,\" or \"Also,\" without adding meaning - Order content by priority: high, then medium, then low - Keep the message professional, natural, concise, and complete - Do NOT add a greeting or closing unless already present in the provided responses - Minor rewording is allowed only to improve flow, remove repetition, normalize voice, or connect ideas without changing meaning  Final validation before answering: - Use only provided content - No new information - Exact meaning preserved - Voice normalized to \"we\" - Ordered by priority - Valid JSON only  If any check fails, correct it before returning."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1568,
+        -240
+      ],
+      "id": "ebec7ee2-7b06-4ca3-a5df-93d75d7c16e7",
+      "name": "Basic LLM Chain1"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1536,
+        -80
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Anthropic Chat Model2",
+      "credentials": {
+        "anthropicApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let rawText = $json.text || $json.output || '';\nrawText = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(rawText);\n} catch (e) {\n  throw new Error('LLM Call 3 devolvió JSON inválido: ' + rawText.substring(0, 200));\n}\n\nif (!parsed.final_response || parsed.final_response.trim() === '') {\n  throw new Error('final_response vacío');\n}\n\n// client_data: lo tomamos del primer item del Parse + Split Issues\n// (es igual en todos los items — viene del mismo ticket)\nconst clientData = $('Parse + Split Issues').first().json.client_data;\n\n// issues: array completo del Aggregate\nconst issues = $('Aggregate Issues').first().json.issues;\n\nreturn [{\n  json: {\n    client_data: clientData,\n    issues: issues,\n    final_response: parsed.final_response,\n    approval_token: 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {\n      const r = Math.random() * 16 | 0;\n      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);\n    })\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1872,
+        -240
+      ],
+      "id": "addcc05b-d9a0-4caf-bb40-abd1f6d72e51",
+      "name": "Parse final response"
+    },
+    {
+      "parameters": {
+        "tableId": "tickets",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "customer_email",
+              "fieldValue": "={{ $json.client_data.customer_email }}"
+            },
+            {
+              "fieldId": "customer_name",
+              "fieldValue": "={{ $json.client_data.customer_name }}"
+            },
+            {
+              "fieldId": "client_id",
+              "fieldValue": "={{ $json.client_data.client_id }}"
+            },
+            {
+              "fieldId": "order_number",
+              "fieldValue": "={{ $json.client_data.order_number }}"
+            },
+            {
+              "fieldId": "raw_email",
+              "fieldValue": "={{ $('Guard').item.json.email_body }}"
+            },
+            {
+              "fieldId": "issues",
+              "fieldValue": "={{ $json.issues }}"
+            },
+            {
+              "fieldId": "final_response",
+              "fieldValue": "={{ $json.final_response }}"
+            },
+            {
+              "fieldId": "approval_token",
+              "fieldValue": "={{ $json.approval_token }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        2048,
+        -240
+      ],
+      "id": "YOUR_CREDENTIAL_HERE",
+      "name": "Save to Supabase",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_CREDENTIAL_HERE",
+          "name": "YOUR_CREDENTIAL_HERE"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "ocorsolorden@gmail.com",
+        "subject": "=[Support Ticket] New ticket pending review — {{ $('Parse + Split Issues').first().json.client_data.customer_name }}",
+        "message": "=<h2>New support ticket pending your review</h2>  <p><strong>Customer:</strong> {{ $('Parse + Split Issues').first().json.client_data.customer_name }}<br> <strong>Email:</strong> {{ $('Parse + Split Issues').first().json.client_data.customer_email }}<br> <strong>Client ID:</strong> {{ $('Parse + Split Issues').first().json.client_data.client_id }}<br> <strong>Order:</strong> {{ $('Parse + Split Issues').first().json.client_data.order_number }}</p>  <h3>Issues detected</h3> <p>{{ $('Aggregate Issues').first().json.issues.map(i => `• [${i.priority.toUpperCase()}] ${i.issue}`).join('<br>') }}</p>  <h3>Draft response</h3> <p>{{ $('Parse final response').first().json.final_response }}</p>  <h3>Actions</h3> <p> <a href=\"https://satisfy-charles-adjustable-yukon.trycloudflare.com/webhook/approve?token={{ $('Parse final response').first().json.approval_token }}\" style=\"background:#22c55e;color:white;padding:10px 20px;text-decoration:none;border-radius:5px;margin-right:10px\">✅ Approve & Send</a>  <a href=\"https://satisfy-charles-adjustable-yukon.trycloudflare.com/webhook/needs-edit?token={{ $('Parse final response').first().json.approval_token }}\" style=\"background:#f59e0b;color:white;padding:10px 20px;text-decoration:none;border-radius:5px\">⚠️ Needs Edit</a> </p>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        2224,
+        -240
+      ],
+      "id": "0b9e6cd2-2842-4daa-b2dc-115ba391077c",
+      "name": "Send a message",
+      "webhookId": "32cfb976-76cf-41b3-a5cf-45ed87767238",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "jUJfBZjXdbKGvSYY",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -16,
+        -240
+      ],
+      "id": "27bb76be-aa3c-49a2-ae65-112ad389122e",
+      "name": "Gmail Trigger",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WUlYiinIomGYoIqb",
+          "name": "Gmail account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        160,
+        -240
+      ],
+      "id": "e655734a-46bd-47cb-ba74-080d37bafbee",
+      "name": "Get Full Email",
+      "webhookId": "12c9b178-8d27-4e5b-8f8d-ee1b77074e02",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "WUlYiinIomGYoIqb",
+          "name": "Gmail account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Guard": {
+      "main": [
+        [
+          {
+            "node": "LLM call 1 (extraction)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "LLM call 1 (extraction)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM call 1 (extraction)": {
+      "main": [
+        [
+          {
+            "node": "Parse + Split Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse + Split Issues": {
+      "main": [
+        [
+          {
+            "node": "Loop - Process Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop - Process Issues": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Issues",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Parse + validate issue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse + validate issue": {
+      "main": [
+        [
+          {
+            "node": "Loop - Process Issues",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Issues": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model2": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain1": {
+      "main": [
+        [
+          {
+            "node": "Parse final response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse final response": {
+      "main": [
+        [
+          {
+            "node": "Save to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Full Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Full Email": {
+      "main": [
+        [
+          {
+            "node": "Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "6bd2cd60-7457-4e7c-99cd-8ea117ab22ae",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bbdc65648e0e55b506b82530115818e09bcc65d4f6a3892102dd1d945d1bd6e2"
+  },
+  "id": "qUb5PLVeqxs7tSVq",
+  "tags": []
+}

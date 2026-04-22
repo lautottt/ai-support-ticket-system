@@ -1,6 +1,6 @@
 # AI Customer Support Automation — v2
 
-An automated support ticket processing system built with n8n, Claude AI, and Supabase.  
+An automated support ticket processing system built with n8n, Claude AI, OpenAI and Supabase.  
 Receives tickets via Gmail, processes them with AI, stores everything in a structured database,  
 and routes draft responses to a human agent for approval before sending.
 

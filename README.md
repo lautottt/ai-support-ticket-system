@@ -199,6 +199,29 @@ Table: `tickets`
 
 ---
 
+## Testing
+
+Testing focuses on:
+
+- Intent classification accuracy  
+  Ensuring user requests (e.g. refunds, returns, billing issues) are correctly identified.
+
+- Multi-issue detection  
+  Verifying the system can handle messages containing multiple problems in a single input.
+
+- Validation logic  
+  Confirming that required fields (e.g. order_number) are correctly detected and missing data is handled gracefully.
+
+- Edge cases  
+  Testing ambiguous or informal inputs (e.g. “refund pls”, “where is my stuff”) to evaluate robustness.
+
+- Response quality  
+  Ensuring generated responses are clear, helpful and aligned with the detected issue and intent.
+
+The goal is to identify failure patterns, not just individual errors, and continuously improve the system’s behavior.
+
+---
+
 ## What's next
 
 - [ ] Dashboard to monitor ticket volume, response times, and issue categories
